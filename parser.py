@@ -1,3 +1,5 @@
+import json
+
 from html_to_markdown import convert_with_visitor
 from bs4 import BeautifulSoup
 from os.path import exists
@@ -23,7 +25,7 @@ class MyVisitor:
         return {"type": "skip"}
 
 
-class Parser:
+class EngeeBlockDocumentationDownloader:
     """Класс парсера для скачивания документации блоков Engee и конвертации в markdown формат """
     def __init__(self) -> None:
         self.__base_url: str = "https://engee.com/helpcenter/stable/ru-en/"
@@ -52,19 +54,20 @@ class Parser:
 
         return None
 
-    def pretiffy_data(self, markdown_text: str) -> str:
+    @staticmethod
+    def pretiffy_data(markdown_text: str) -> str:
         """Убирает лишнюю информацию из текста:
-        - часть текста в вставленными изображениями
+        - часть текста с вставленными изображениями
         - часть текста с примерами"""
-        pattern = re.compile(r'\[SVG Image\]\(data:image/svg\+xml;base64,[^)]+\)')
+        removing_pattern = re.compile(r'\[SVG Image\]\(data:image/svg\+xml;base64,[^)]+\)')
 
-        target_words = ["#дополнительные-возможности", "дополнительные возможности", "#примеры", "примеры", "#смотрите-также", "смотрите также"]
+        TARGET_WORDS = ["#дополнительные-возможности", "дополнительные возможности", "#примеры", "примеры", "#смотрите-также", "смотрите также"]
 
-        clean_text = re.sub(pattern, "", markdown_text)
+        clean_text = re.sub(removing_pattern, "", markdown_text)
 
         cursor = -1
 
-        for word in target_words:
+        for word in TARGET_WORDS:
             if word in clean_text.lower():
                 cursor = clean_text.rfind(word)
                 if cursor != -1:
@@ -72,14 +75,37 @@ class Parser:
 
         return clean_text
 
+    @staticmethod
+    def __get_block_metadata(markdown_text: str) -> dict[str, str]:
+        block_name = markdown_text.split("\n")[0].replace("#", "").replace("/", "-").strip()
 
-    def __save_md(self, block_name: str, body: str) -> bool:
+        path_pattern = re.compile(r"Путь в библиотеке:<br>\s*(/[^|]+)")
+        block_path = re.search(path_pattern, markdown_text).group(1)
+
+        metadata = {"block_name": block_name,
+                    "block_path": block_path}
+
+        return metadata
+
+    def __save_block_metadata(self, metadata: dict[str, str]) -> None:
+        block_path = metadata.get("block_path").replace("/", ".")
+        if block_path:
+            open(f"{self.__doc_dir + block_path.rstrip()}.json", "w", encoding="utf-8").write(json.dumps(metadata))
+            return
+        else:
+            raise ValueError("'block_path' is not exists in metadata")
+
+    def __save_md(self, body: str) -> bool:
         """Конвертирует файл в md формат и сохраняет в директории"""
         markdown_text = convert_with_visitor(body, visitor=MyVisitor())
         markdown = self.pretiffy_data(markdown_text)
 
+        metadata = self.__get_block_metadata(markdown)
+        self.__save_block_metadata(metadata)
+        block_path = metadata.get("block_path").replace("/", ".")
+
         try:
-            with open(f"{self.__doc_dir + block_name}.md", "w", encoding="utf-8") as f:
+            with open(f"{self.__doc_dir + block_path.rstrip()}.md", "w", encoding="utf-8") as f:
                 f.write(markdown)
             return True
         except:
@@ -118,11 +144,10 @@ class Parser:
                 soup = BeautifulSoup(content, "html.parser")
                 article = soup.find("article", {"class": "doc ru-en"})
                 if self.__validate_page(article):
-                    block_name = article.find("h1").text
 
                     article = str(article)
 
-                    if self.__save_md(block_name, article):
+                    if self.__save_md(article):
                         return True
 
             return False
@@ -139,7 +164,7 @@ class Parser:
 
 
 if __name__ == "__main__":
-    parser = Parser()
+    parser = EngeeBlockDocumentationDownloader()
 
     start = perf_counter()
 
