@@ -77,12 +77,12 @@ class EngeeBlockDocumentationDownloader:
 
         self._callback: Optional[Callable[[Any], None]] = None
         self.__base_url: str = "https://engee.com/helpcenter/stable/ru-en/"
-        self.__blocked_libs: list[str] = ["/interfaces/", "/ritm/"]
+        self.__allowed_libs: Optional[list[str]] = None
 
     def set_callback(self, callback: Callable[[Any], None]) -> None:
         self._callback = callback
 
-    def get_all_libs(self) -> Optional[list[str]]:
+    def get_all_libs(self) -> Optional[dict[int, str]]:
         """
         Парсит все общие библиотеки (первого уровня, самые большие)
         :return: лист с названием библиотек
@@ -93,9 +93,25 @@ class EngeeBlockDocumentationDownloader:
             soup = BeautifulSoup(response.content, "html.parser")
             articles = soup.find("article", {"class": "doc ru-en"})
             root_ul = articles.find("ul")
-            libs_list = [li.find("a").text for li in root_ul.find_all("li", recursive=False)]
-            return libs_list
+            libs_list = ["/" + li.find("a").text.lower() + "/" for li in root_ul.find_all("li", recursive=False)]
+
+            if "/оборудование/" in libs_list:
+                libs_list.remove("/оборудование/")
+                libs_list.append("/interfaces/")
+            libs_dict = dict(zip(range(0, len(libs_list)), libs_list))
+            return libs_dict
         return None
+
+    def get_allowed_libs(self) -> list[str]:
+        return self.__allowed_libs
+
+    def choose_allowed_libs(self, allowed_libs_indexes: list[int]):
+        libs_dict = self.get_all_libs()
+        allowed_libs = [lib for i, lib in libs_dict.items() if i in allowed_libs_indexes]
+        if len(allowed_libs) == 0:
+            raise ValueError("Gets 0 allowed libs, nothing to parse.")
+
+        self.__allowed_libs = allowed_libs
 
     @staticmethod
     def extract_article(content: bytes) -> Optional[Tag]:
@@ -169,8 +185,9 @@ class EngeeBlockDocumentationDownloader:
         """
         body = body.text.lower()
         if "путь в библиотеке" in body:
-            if not any((blocked_lib in body) for blocked_lib in self.__blocked_libs):
+            if self.__allowed_libs is None:
                 return True
+            return any((lib in body) for lib in self.__allowed_libs)
         return False
 
     def save_block_docs(self, content: str, metadata: BlockMetadata) -> None:
