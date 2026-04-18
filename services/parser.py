@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional
+from typing import Optional, Callable, Any
 
 from aiohttp.abc import HTTPException
 from html_to_markdown import convert_with_visitor
@@ -28,23 +28,35 @@ class CustomVisitor:
 
 @dataclass
 class BlockMetadata:
+    """
+    Хранит метаданные для блока
+    """
     block_name: str
     block_path: str
 
 class PageStatus(Enum):
+    """
+    Статусы обработки страницы
+    """
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
 
 @dataclass
 class PageProcessResult:
+    """
+    Хранит результат обработки отдельной страницы.
+    """
     url: str
-    status: PageStatus # Success / Failed
+    status: PageStatus
     reason: Optional[str]
     metadata: Optional[BlockMetadata]
 
 @dataclass
 class ParserRunResult:
+    """
+    Хранит результаты запуска всего парсера, записывая количество обработанных документов.
+    """
     total: int
     successes: int
     failures: int
@@ -63,16 +75,12 @@ class EngeeBlockDocumentationDownloader:
 
         self.max_concurrent_requests = max_concurrent_requests
 
-        self.__links_count: Optional[int] = None
+        self._callback: Optional[Callable[[Any], None]] = None
         self.__base_url: str = "https://engee.com/helpcenter/stable/ru-en/"
         self.__blocked_libs: list[str] = ["/interfaces/", "/ritm/"]
 
-    @property
-    def get_links_count(self) -> int:
-        """
-        :return: количество ссылок на страницы блоков документаций
-        """
-        return self.__links_count
+    def set_callback(self, callback: Callable[[Any], None]) -> None:
+        self._callback = callback
 
     def get_all_libs(self) -> Optional[list[str]]:
         """
@@ -151,7 +159,6 @@ class EngeeBlockDocumentationDownloader:
                     if link:
                         link = self.__base_url + link
                         documentation_links.append(link)
-        self.__links_count = len(documentation_links)
         return documentation_links
 
     def __is_allowed_block(self, body: Tag) -> bool:
@@ -181,6 +188,18 @@ class EngeeBlockDocumentationDownloader:
 
         with open(metadata_file_path, "w", encoding="utf-8") as metadata_file:
             metadata_file.write(json.dumps(asdict(metadata)))
+
+    async def _emit_progress(self, advance: float = 1) -> None:
+        """
+        Вызывает функцию продвижения прогресса для прогресс-бара (если поле заполнено).
+        :param advance: Значение продвижения (законченных задач)
+        """
+        if self._callback is None:
+            return
+
+        result = self._callback(advance)
+        if asyncio.iscoroutine(result):
+            await result
 
     async def process_page(self, session: aiohttp.ClientSession, link: str) -> PageProcessResult:
         try:
@@ -269,6 +288,8 @@ class EngeeBlockDocumentationDownloader:
                 elif result.status == PageStatus.FAILED:
                     failed_cnt += 1
 
+                await self._emit_progress(1)
+
         return ParserRunResult(
             total=successes_cnt + skipped_cnt + failed_cnt,
             successes=successes_cnt,
@@ -281,12 +302,7 @@ class EngeeBlockDocumentationDownloader:
 
 if __name__ == "__main__":
     parser = EngeeBlockDocumentationDownloader()
+    parser_result = asyncio.run(parser.main())
+    print(parser_result)
 
-    # start = perf_counter()
-
-    asyncio.run(parser.main())
-
-    # end = perf_counter()
-
-    # print(f"\nTOOK {end - start} seconds")
 
