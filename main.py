@@ -67,7 +67,9 @@ def make_callback(progress: Progress, task_id: TaskID) -> Callable[[Any], None]:
 
 async def main() -> None:
     """Точка входа. Создаёт прогресс-бар, отслеживает задачу парсинга и скачивания документации блоков"""
-    console = Console()
+    console = Console(
+        log_path=False
+    )
 
     progress = Progress(
         SpinnerColumn(),
@@ -78,7 +80,6 @@ async def main() -> None:
         TimeRemainingColumn(),
         console=console,
     )
-    progress.start()
 
     setup()
     run_dir_path = get_current_run_dir_path()
@@ -86,6 +87,24 @@ async def main() -> None:
     parser = EngeeBlockDocumentationDownloader(
         work_dir=run_dir_path,
     )
+
+    all_libs = parser.get_all_libs()
+    libs_indexes = list(all_libs.keys())
+
+    console.log("Choose allowed libs for parsing...")
+    console.log(all_libs)
+    chosen_libs = console.input("Enter numbers of allowed lib, divided by comma (ex.: `0 1 2`). Enter `all` for choose all libs.\n--").strip()
+    if chosen_libs == "all":
+        console.log("Chosen all libs")
+    else:
+        chosen_libs = [int(x) for x in chosen_libs.split() if x.isnumeric() and (int(x) in libs_indexes)]
+        if not chosen_libs:
+            raise ValueError("Gets 0 chosen libs.")
+        parser.choose_allowed_libs(chosen_libs)
+        console.log(f"Chosen libs: {parser.get_allowed_libs()}")
+
+    progress.start()
+
     parser_task_id = progress.add_task(
         "[cyan]Downloading documentation...[/cyan]",
         total=len(parser.parse_links())
