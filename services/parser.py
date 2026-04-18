@@ -43,6 +43,13 @@ class PageProcessResult:
     reason: Optional[str]
     metadata: Optional[BlockMetadata]
 
+@dataclass
+class ParserRunResult:
+    total: int
+    successes: int
+    failures: int
+    skipped: int
+
 class EngeeBlockDocumentationDownloader:
     """
     Класс парсера для скачивания документации блоков Engee и конвертации в markdown формат.
@@ -235,11 +242,15 @@ class EngeeBlockDocumentationDownloader:
                 metadata=None
             )
 
-    async def main(self) -> None:
+    async def main(self) -> ParserRunResult:
         """Запускает основной процесс (парсит ссылки на страницы и запускает скачивание файлов)"""
         doc_links: list[str] = self.parse_links()
         if not doc_links:
             raise ValueError("No links found")
+
+        successes_cnt: int = 0
+        skipped_cnt: int = 0
+        failed_cnt: int = 0
 
         aio_connector = aiohttp.TCPConnector(limit=self.max_concurrent_requests)
         async with aiohttp.ClientSession(connector=aio_connector) as session:
@@ -249,7 +260,21 @@ class EngeeBlockDocumentationDownloader:
             ]
 
             for task in asyncio.as_completed(tasks):
-                await task
+                result = await task
+
+                if result.status == PageStatus.SUCCESS:
+                    successes_cnt += 1
+                elif result.status == PageStatus.SKIPPED:
+                    skipped_cnt += 1
+                elif result.status == PageStatus.FAILED:
+                    failed_cnt += 1
+
+        return ParserRunResult(
+            total=successes_cnt + skipped_cnt + failed_cnt,
+            successes=successes_cnt,
+            failures=failed_cnt,
+            skipped=skipped_cnt,
+        )
 
 
 
