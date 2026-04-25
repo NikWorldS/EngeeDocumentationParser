@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime
 import os
 from typing import Any, Callable
+from dotenv import load_dotenv
 
 from rich.console import Console
 from rich.progress import (
@@ -26,7 +27,7 @@ from services.converter import (
 )
 from services.parser import EngeeBlockDocumentationDownloader
 
-
+load_dotenv()
 BASE_RUNS_DIRECTORY = "./runs"
 
 
